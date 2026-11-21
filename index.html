@@ -5,16 +5,16 @@
 </head><body><header><h1>Flat Color Converter</h1><p>AI塗り分けPNG → 黒線除去 → 色の塗り足し → レイヤー付きPSD</p></header><main>
 <section class="panel"><h2>入力・処理設定</h2><div class="drop" id="drop"><div style="margin-bottom:8px">塗り分け済みPNGを選択／ドロップ</div><input type="file" id="file" accept="image/png,image/jpeg,image/webp"></div><p class="hint">画像はブラウザ内で処理され、サーバーへ送信されません。</p>
 <hr><div class="field"><label for="dark">黒判定（RGB各成分の最大値）<output id="darkVal">90</output></label><input id="dark" type="range" min="0" max="200" value="90"><p class="hint">この値以下の暗いピクセルを主線・黒ベタとして除去します。</p></div>
-<div class="field"><label for="expand">黒周囲の追加除去 <output id="expandVal">2 px</output></label><input id="expand" type="range" min="0" max="12" value="2"></div>
-<div class="field"><label for="tolerance">近似色の統合（RGB距離）<output id="toleranceVal">35</output></label><input id="tolerance" type="range" min="0" max="150" value="35"><p class="hint">似た色を同じレイヤーにまとめます。上げすぎると別パーツも統合されます。</p></div>
-<label class="options"><input type="checkbox" id="regions">連結領域ごとにレイヤー分割</label><label class="options"><input type="checkbox" id="white" checked>白色もレイヤーに含める</label><p class="hint">白を除外すると、白い領域は透明になります。</p>
+<div class="field"><label for="expand">黒周囲の追加除去 <output id="expandVal">1 px</output></label><input id="expand" type="range" min="0" max="12" value="1"></div>
+<div class="field"><label for="tolerance">固定パレット変換の強さ <output id="toleranceVal">100%</output></label><input id="tolerance" type="range" min="0" max="100" value="100"><p class="hint">100%で全画素を指定10色に変換します。0%では元の色をプレビュー表示します（PSD出力は常に固定10色）。</p></div>
+<div class="field"><label for="minArea">微小領域の統合 <output id="minAreaVal">0 px²</output></label><input id="minArea" type="range" min="0" max="100" value="0"><p class="hint">この面積以下の孤立した領域を、接する色のうち境界が最も長い色に統合します。小さな目・口を守るため初期値は0です。</p></div><label class="options"><input type="checkbox" id="regions" checked>連結領域ごとにレイヤー分割（推奨）</label><label class="options"><input type="checkbox" id="white" checked>白い背景も出力（現行10色には白なし）</label><p class="hint">黒い線・黒ベタはすべて除去して塗り足します。黒い色はPSDに残りません。</p><p class="hint">固定10色：赤・緑・青・黄・マゼンタ・シアン・オレンジ・紫・黄緑・ピンク</p>
 <button class="action" id="run" disabled>プレビューを更新</button><button class="action" id="export" disabled>PSDを書き出す</button><p id="status" class="status" aria-live="polite">画像を読み込んでください。</p></section>
-<section class="panel"><h2>処理結果プレビュー</h2><div class="tabs"><button class="active" data-view="original">元画像</button><button data-view="mask">除去範囲</button><button data-view="normalized">正規化</button><button data-view="filled">塗り足し結果</button></div><div class="canvas-holder"><canvas id="preview"></canvas></div><div id="stats">画像未読み込み</div><div id="palette"></div><p class="hint">除去範囲は赤で表示します。塗り足し結果では黒い線の下まで色が延長されます。</p></section>
+<section class="panel"><h2>処理結果プレビュー</h2><div class="tabs"><button class="active" data-view="original">元画像</button><button data-view="mask">除去範囲</button><button data-view="normalized">正規化</button><button data-view="filled">塗り足し結果</button></div><div class="canvas-holder"><canvas id="preview"></canvas></div><div id="stats">画像未読み込み</div><div id="palette"></div><p class="hint">除去範囲は赤で表示します。正規化では固定10色への変換を確認できます。塗り足し結果では黒い線の下まで色が延長されます。</p></section>
 </main><script src="https://cdn.jsdelivr.net/npm/ag-psd@6.2.0/dist/bundle.js"></script><script>
 'use strict';
 const $=id=>document.getElementById(id), preview=$('preview'), ctx=preview.getContext('2d',{willReadFrequently:true});
 let input=null, result=null, currentView='original', name='flat-colors';
-const controls=['dark','expand','tolerance','regions','white'];
+const controls=['dark','expand','tolerance','minArea','regions','white'];
 function status(s){$('status').textContent=s;}
 function render(){if(!input)return;const w=input.width,h=input.height;preview.width=w;preview.height=h;let bytes;
 if(currentView==='original'||!result)bytes=input.data;
@@ -23,40 +23,147 @@ else if(currentView==='normalized') bytes=result.normalized;
 else bytes=result.filled;
 ctx.putImageData(new ImageData(new Uint8ClampedArray(bytes),w,h),0,0);
 }
-function ranges(){for(const id of ['dark','expand','tolerance'])$(id+'Val').textContent=$(id).value+(id==='expand'?' px':'');}
-controls.forEach(id=>{$(id).addEventListener('input',()=>{ranges();if(input)status('設定を変更しました。「プレビューを更新」を押してください。');});});
+function ranges(){for(const id of ['dark','expand','tolerance','minArea'])$(id+'Val').textContent=$(id).value+({expand:' px',tolerance:'%',minArea:' px²'}[id]||'');}
+controls.forEach(id=>{$(id).addEventListener('input',()=>{ranges();if(input){$('export').disabled=true;status('設定を変更しました。「プレビューを更新」を押してください。');}});});
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{currentView=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===b));render();}));
 async function load(file){if(!file)return;try{status('画像読み込み中…');const bmp=await createImageBitmap(file);const c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(bmp,0,0);input=x.getImageData(0,0,c.width,c.height);bmp.close();name=file.name.replace(/\.[^.]+$/,'');result=null;$('run').disabled=false;$('export').disabled=true;$('stats').textContent=`${input.width} × ${input.height} px`;$('palette').replaceChildren();render();status('読み込みました。処理を開始します。');await new Promise(r=>setTimeout(r,40));await process();}catch(e){console.error(e);status('読み込みに失敗しました: '+e.message);}}
 $('file').addEventListener('change',e=>load(e.target.files[0]));const drop=$('drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over')});drop.addEventListener('dragleave',()=>drop.classList.remove('over'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');load(e.dataTransfer.files[0]);});
 $('run').addEventListener('click',process);
 function clamp255(n){return Math.max(0,Math.min(255,Math.round(n)));}
 function makeImage(ids,colors,w,h){const a=new Uint8ClampedArray(w*h*4);for(let i=0;i<ids.length;i++){const k=ids[i];if(k<0)continue;const p=i*4,c=colors[k];a[p]=c[0];a[p+1]=c[1];a[p+2]=c[2];a[p+3]=255;}return a;}
-function processSync(){const {width:w,height:h,data}=input,n=w*h, dark=+$('dark').value,extra=+$('expand').value,tolerance=+$('tolerance').value;
-const mask=new Uint8Array(n),base=new Uint8Array(n),queue=new Int32Array(n);
-// Dark pixels = lines, large black fills, and ink pools, without exceptions.
-for(let i=0;i<n;i++){const p=i*4;if(data[p+3]<16||Math.max(data[p],data[p+1],data[p+2])<=dark){base[i]=1;mask[i]=1;}}
-// Chebyshev distance dilation, expanded by exact selected pixel count.
-if(extra){let head=0,tail=0;const dist=new Uint8Array(n);for(let i=0;i<n;i++)if(base[i])queue[tail++]=i;while(head<tail){const i=queue[head++],d=dist[i];if(d>=extra)continue;const x=i%w,y=(i/w)|0;for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(!mask[j]){mask[j]=1;dist[j]=d+1;queue[tail++]=j;}}}}
-// Cluster visible RGB colors by quantized 5-bit histogram, then tolerance.
-const hist=new Map();for(let i=0;i<n;i++){if(mask[i])continue;const p=i*4,r=data[p],g=data[p+1],b=data[p+2],key=((r>>3)<<10)|((g>>3)<<5)|(b>>3);let v=hist.get(key);if(!v){v=[0,0,0,0];hist.set(key,v);}v[0]+=r;v[1]+=g;v[2]+=b;v[3]++;}
-let bins=[...hist.values()].sort((a,b)=>b[3]-a[3]);let clusters=[];const binIds=new Map(); // quantized key -> candidate cluster
-for(const b of bins){const color=[b[0]/b[3],b[1]/b[3],b[2]/b[3]];let target=-1,best=tolerance*tolerance;for(let k=0;k<clusters.length;k++){const c=clusters[k],d=(color[0]-c[0])**2+(color[1]-c[1])**2+(color[2]-c[2])**2;if(d<=best){best=d;target=k;}}
-if(target===-1)clusters.push([color[0],color[1],color[2],b[3]]);else {const c=clusters[target],total=c[3]+b[3];for(let z=0;z<3;z++)c[z]=(c[z]*c[3]+color[z]*b[3])/total;c[3]=total;}}
-if(!clusters.length)throw Error('有効な塗り色がありません。黒判定を下げてください。');
-const colors=clusters.map(c=>c.slice(0,3).map(clamp255)), ids=new Int32Array(n).fill(-1);
-for(let i=0;i<n;i++){if(mask[i])continue;const p=i*4;let best=Infinity,kBest=0;for(let k=0;k<colors.length;k++){const c=colors[k],d=(data[p]-c[0])**2+(data[p+1]-c[1])**2+(data[p+2]-c[2])**2;if(d<best){best=d;kBest=k;}}ids[i]=kBest;}
-const normalized=makeImage(ids,colors,w,h);
-// Multi-source BFS: fill erased black/AA pixels with nearest surviving color.
-let head=0,tail=0;for(let i=0;i<n;i++)if(ids[i]>=0)queue[tail++]=i;
-while(head<tail){const i=queue[head++],x=i%w,y=(i/w)|0;const near=[x>0?i-1:-1,x<w-1?i+1:-1,y>0?i-w:-1,y<h-1?i+w:-1];for(const j of near)if(j>=0&&ids[j]<0){ids[j]=ids[i];queue[tail++]=j;}}
-const filled=makeImage(ids,colors,w,h);const excludeWhite=!$('white').checked;
-const selected=colors.map(c=>!(excludeWhite&&Math.min(...c)>=242));
-let parts=[];if($('regions').checked){const seen=new Uint8Array(n),q=new Int32Array(n);for(let i=0;i<n;i++){const k=ids[i];if(seen[i]||!selected[k])continue;let hd=0,tl=1;q[0]=i;seen[i]=1;const pixels=[];while(hd<tl){const t=q[hd++],x=t%w,y=(t/w)|0;pixels.push(t);const near=[x>0?t-1:-1,x<w-1?t+1:-1,y>0?t-w:-1,y<h-1?t+w:-1];for(const j of near)if(j>=0&&!seen[j]&&ids[j]===k){seen[j]=1;q[tl++]=j;}}parts.push({color:k,pixels});}}else{for(let k=0;k<colors.length;k++)if(selected[k])parts.push({color:k,pixels:null});}
-return {mask,normalized,filled,ids,colors,parts,selected,w,h,mode:$('regions').checked};}
-async function process(){if(!input)return;$('run').disabled=true;$('export').disabled=true;status('主線除去・塗り足し・レイヤー解析中…');await new Promise(r=>setTimeout(r,35));try{result=processSync();const count=result.parts.length;$('stats').textContent=`${result.w} × ${result.h}px ｜ ${result.colors.length}色 ｜ 出力 ${count} レイヤー`;$('palette').replaceChildren();result.colors.forEach((c,i)=>{const el=document.createElement('span');el.className='swatch';el.style.background=`rgb(${c.join(',')})`;el.title=`色 ${i+1}: RGB(${c.join(',')})`; $('palette').append(el);});$('export').disabled=count===0||count>600;status(count>600?'レイヤーが600枚を超えています。連結領域モードを解除するか色を統合してください。':'処理完了。プレビューを切り替えて確認できます。');render();}catch(e){console.error(e);result=null;status('処理エラー: '+e.message);}finally{$('run').disabled=false;}}
-$('export').addEventListener('click',async()=>{if(!result)return;$('export').disabled=true;status('PSDを作成中…');await new Promise(r=>setTimeout(r,35));try{if(!window.agPsd||!agPsd.writePsd)throw Error('PSDライブラリを読み込めません。ネットワーク接続を確認してください。');const {w,h,parts,ids,colors}=result;const children=[];
-for(let pi=0;pi<parts.length;pi++){const part=parts[pi],k=part.color,rgba=new Uint8ClampedArray(w*h*4),c=colors[k];if(part.pixels){for(const i of part.pixels){const p=i*4;rgba[p]=c[0];rgba[p+1]=c[1];rgba[p+2]=c[2];rgba[p+3]=255;}}else{for(let i=0;i<ids.length;i++)if(ids[i]===k){const p=i*4;rgba[p]=c[0];rgba[p+1]=c[1];rgba[p+2]=c[2];rgba[p+3]=255;}}const layer=document.createElement('canvas');layer.width=w;layer.height=h;layer.getContext('2d').putImageData(new ImageData(rgba,w,h),0,0);children.push({name:`${String(pi+1).padStart(3,'0')} - RGB ${c.join('-')}${result.mode?' - region':''}`,canvas:layer});}
-const composite=document.createElement('canvas');composite.width=w;composite.height=h;const cp=composite.getContext('2d');const a=new Uint8ClampedArray(result.filled);for(let i=0;i<ids.length;i++)if(!result.selected[ids[i]])a[i*4+3]=0;cp.putImageData(new ImageData(a,w,h),0,0);
-const buffer=agPsd.writePsd({width:w,height:h,children,canvas:composite});const blob=new Blob([buffer],{type:'image/vnd.adobe.photoshop'}),url=URL.createObjectURL(blob),aLink=document.createElement('a');aLink.href=url;aLink.download=name+'-layers.psd';document.body.appendChild(aLink);aLink.click();aLink.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);status(`PSDを書き出しました（${children.length}レイヤー）。`);}catch(e){console.error(e);status('PSD作成エラー: '+e.message);}finally{$('export').disabled=false;}});
+// The palette is deliberately the same ten HEX colors used in the AI prompt.
+const PALETTE=[
+ ['赤','#FF4040'],['緑','#40FF40'],['青','#4040FF'],['黄','#FFE040'],
+ ['マゼンタ','#FF40C0'],['シアン','#40E0FF'],['オレンジ','#FF9A40'],
+ ['紫','#A040FF'],['黄緑','#B8FF40'],['ピンク','#FF80B0']
+];
+const COLORS=PALETTE.map(([,hex])=>[1,3,5].map(p=>parseInt(hex.slice(p,p+2),16)));
+function neighbors4(i,w,h,fn){const x=i%w;if(x)fn(i-1);if(x+1<w)fn(i+1);if(i>=w)fn(i-w);if(i+w<w*h)fn(i+w);}
+function processSync(){
+ const {width:w,height:h,data}=input,n=w*h,dark=+$('dark').value,extra=+$('expand').value;
+ const mask=new Uint8Array(n),queue=new Int32Array(n),distance=new Uint8Array(n);
+ let head=0,tail=0;
+ // Every black region is a line, including solid black and ink pools.
+ for(let i=0;i<n;i++){
+  const p=i*4;
+  if(data[p+3]<16 || Math.max(data[p],data[p+1],data[p+2])<=dark){mask[i]=1;queue[tail++]=i;}
+ }
+ // 8-way expansion to remove antialiasing around dark areas.
+ if(extra){while(head<tail){const i=queue[head++],d=distance[i];if(d>=extra)continue;
+  const x=i%w,y=(i/w)|0;
+  for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){
+   const j=yy*w+xx;if(!mask[j]){mask[j]=1;distance[j]=d+1;queue[tail++]=j;}
+  }
+ }}
+ // Assign every surviving pixel to the closest *specified* palette color.
+ const ids=new Int16Array(n).fill(-1), normalized=new Uint8ClampedArray(n*4);
+ let valid=0;
+ for(let i=0;i<n;i++){
+  if(mask[i])continue;const p=i*4;let best=Infinity,kBest=0;
+  for(let k=0;k<COLORS.length;k++){
+   const c=COLORS[k],d=(data[p]-c[0])**2+(data[p+1]-c[1])**2+(data[p+2]-c[2])**2;
+   if(d<best){best=d;kBest=k;}
+  }
+  ids[i]=kBest;valid++;
+  const c=COLORS[kBest],mix=+$('tolerance').value/100;
+  normalized[p]=Math.round(data[p]*(1-mix)+c[0]*mix);
+  normalized[p+1]=Math.round(data[p+1]*(1-mix)+c[1]*mix);
+  normalized[p+2]=Math.round(data[p+2]*(1-mix)+c[2]*mix);
+  normalized[p+3]=255;
+ }
+ if(!valid)throw Error('すべて黒として検出されました。黒判定の値を下げてください。');
+ // Simultaneous multi-source flood fill to paint the removed black underneath.
+ head=0;tail=0;
+ for(let i=0;i<n;i++)if(ids[i]>=0)queue[tail++]=i;
+ while(head<tail){const i=queue[head++];neighbors4(i,w,h,j=>{if(ids[j]<0){ids[j]=ids[i];queue[tail++]=j;}});}
+ // Component extraction; 4-connectivity prevents mere diagonal touches from merging.
+ function components(){const labels=new Int32Array(n).fill(-1),parts=[],q=new Int32Array(n);
+  for(let i=0;i<n;i++){
+   if(labels[i]>=0)continue;const color=ids[i],id=parts.length;
+   let hd=0,tl=1,minX=i%w,maxX=minX,minY=(i/w)|0,maxY=minY;
+   labels[i]=id;q[0]=i;
+   while(hd<tl){const v=q[hd++],x=v%w,y=(v/w)|0;
+    if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
+    neighbors4(v,w,h,j=>{if(labels[j]<0&&ids[j]===color){labels[j]=id;q[tl++]=j;}});
+   }
+   parts.push({color,area:tl,minX,maxX,minY,maxY});
+  }
+  return {labels,parts};
+ }
+ let componentsData=components(),merged=0;
+ const minArea=+$('minArea').value;
+ if(minArea){
+  // For each tiny region, choose a different adjacent color by shared-edge count.
+  const votes=new Map();
+  for(let i=0;i<n;i++){
+   const a=componentsData.labels[i],part=componentsData.parts[a];if(part.area>minArea)continue;
+   let counts=votes.get(a);if(!counts){counts=new Int32Array(COLORS.length);votes.set(a,counts);}
+   neighbors4(i,w,h,j=>{if(ids[j]!==part.color)counts[ids[j]]++;});
+  }
+  const replacements=new Int16Array(componentsData.parts.length).fill(-1);
+  for(const [partId,v] of votes){let best=0,newColor=-1;for(let k=0;k<v.length;k++)if(v[k]>best){best=v[k];newColor=k;}
+   if(newColor>=0){replacements[partId]=newColor;merged++;}
+  }
+  if(merged){for(let i=0;i<n;i++){const r=replacements[componentsData.labels[i]];if(r>=0)ids[i]=r;}
+   componentsData=components();}
+ }
+ const filled=makeImage(ids,COLORS,w,h);
+ const countByColor=new Int32Array(COLORS.length);
+ for(let i=0;i<n;i++)countByColor[ids[i]]++;
+ const activeColors=COLORS.map((_,i)=>i).filter(k=>countByColor[k]>0);
+ const regionMode=$('regions').checked;
+ const parts=regionMode?componentsData.parts.map((p,i)=>({...p,id:i})):
+  activeColors.map(k=>({color:k,area:countByColor[k],id:k}));
+ return {mask,normalized,filled,ids,colors:COLORS,parts,labels:componentsData.labels,
+  activeColors,w,h,mode:regionMode,merged};
+}
+async function process(){
+ if(!input)return;$('run').disabled=true;$('export').disabled=true;
+ status('固定10色に変換し、主線を塗り足して領域を解析中…');
+ await new Promise(r=>setTimeout(r,35));
+ try{
+  result=processSync();const count=result.parts.length;
+  $('stats').textContent=`${result.w} × ${result.h}px ｜ 使用 ${result.activeColors.length}/10色 ｜ 出力 ${count} レイヤー`+(result.merged?` ｜ 微小領域 ${result.merged}個統合`:'');
+  $('palette').replaceChildren();
+  PALETTE.forEach(([label,hex],i)=>{const el=document.createElement('span');el.className='swatch';
+   el.style.background=hex;el.style.opacity=result.activeColors.includes(i)?'1':'0.25';
+   el.title=`${label} ${hex}${result.activeColors.includes(i)?'（使用）':'（未使用）'}`;$('palette').append(el);});
+  $('export').disabled=count===0||count>500;
+  status(count>500?'レイヤーが500枚を超えています。微小領域の統合を上げるか、色単位モードに切り替えてください。':
+   '処理完了。塗り足し結果と生成レイヤー数を確認できます。');
+  render();
+ }catch(e){console.error(e);result=null;status('処理エラー: '+e.message);}finally{$('run').disabled=false;}
+}
+$('export').addEventListener('click',async()=>{
+ if(!result)return;$('export').disabled=true;status('PSDを作成中…');await new Promise(r=>setTimeout(r,35));
+ try{
+  if(!window.agPsd||!agPsd.writePsd)throw Error('PSDライブラリを読み込めません。ネットワーク接続を確認してください。');
+  const {w,h,parts,ids,colors,labels,mode}=result;
+  const children=[];
+  // Build one transparent, cropped canvas per layer instead of huge full-size canvases.
+  for(let pi=0;pi<parts.length;pi++){
+   const part=parts[pi],k=part.color,c=colors[k];
+   let left=0,top=0,right=w-1,bottom=h-1;
+   if(mode){left=part.minX;top=part.minY;right=part.maxX;bottom=part.maxY;}
+   const lw=right-left+1,lh=bottom-top+1,rgba=new Uint8ClampedArray(lw*lh*4);
+   for(let y=top;y<=bottom;y++)for(let x=left;x<=right;x++){
+    const src=y*w+x;
+    if(mode?labels[src]===part.id:ids[src]===k){const p=((y-top)*lw+x-left)*4;
+     rgba[p]=c[0];rgba[p+1]=c[1];rgba[p+2]=c[2];rgba[p+3]=255;}
+   }
+   const layer=document.createElement('canvas');layer.width=lw;layer.height=lh;
+   layer.getContext('2d').putImageData(new ImageData(rgba,lw,lh),0,0);
+   children.push({name:`${String(pi+1).padStart(3,'0')} - ${PALETTE[k][0]}${mode?' - region':''}`,left,top,canvas:layer});
+   if(pi%10===0)await new Promise(r=>setTimeout(r,0));
+  }
+  const composite=document.createElement('canvas');composite.width=w;composite.height=h;
+  composite.getContext('2d').putImageData(new ImageData(result.filled,w,h),0,0);
+  const buffer=agPsd.writePsd({width:w,height:h,children,canvas:composite});
+  const blob=new Blob([buffer],{type:'image/vnd.adobe.photoshop'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name+'-layers.psd';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+  status(`PSDを書き出しました（${children.length}レイヤー）。`);
+ }catch(e){console.error(e);status('PSD作成エラー: '+e.message);}finally{$('export').disabled=false;}
+});
 ranges();
 </script></body></html>
